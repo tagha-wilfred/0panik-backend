@@ -1,22 +1,16 @@
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin
-from accounts.models import User 
+from .models import Device, LocationPing
 
-class CustomUserAdmin(UserAdmin):
-    list_display = ('email', 'full_name', 'is_staff', 'date_joined')
-    fieldsets = (
-        (None, {'fields': ('email', 'password')}),
-        ('Personal info', {'fields': ('full_name', 'phone_number')}),
-        ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-        ('Important dates', {'fields': ('last_login', 'date_joined')}),
-    )
-    add_fieldsets = (
-        (None, {
-            'classes': ('wide',),
-            'fields': ('email', 'full_name', 'password1', 'password2'),
-        }),
-    )
-    search_fields = ('email', 'full_name')
-    ordering = ('email',)
+@admin.register(Device)
+class DeviceAdmin(admin.ModelAdmin):
+    list_display = ('serial_number', 'owner', 'nickname', 'is_active', 'last_seen')
+    search_fields = ('serial_number', 'owner__email', 'nickname')
+    readonly_fields = ('api_key',)  # show but not editable
+    fields = ('serial_number', 'api_key', 'owner', 'nickname', 'is_active', 'battery_level', 'last_seen')
 
-admin.site.register(User, CustomUserAdmin)
+@admin.register(LocationPing)
+class LocationPingAdmin(admin.ModelAdmin):
+    list_display = ('device', 'latitude', 'longitude', 'recorded_at', 'received_at')
+    list_filter = ('device',)
+    search_fields = ('device__serial_number',)
+    ordering = ('-recorded_at',)
