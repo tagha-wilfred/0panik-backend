@@ -6,6 +6,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from .serializers import RegisterSerializer, UserSerializer
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework import serializers
+from .models import User
 
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
