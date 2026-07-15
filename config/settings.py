@@ -74,13 +74,26 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database configuration using DATABASE_URL, fallback to SQLite for local dev
 import dj_database_url
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',
-        conn_max_age=600,
-        ssl_require=not DEBUG,   # Require SSL in production (Supabase)
-    )
-}
+# Get the database URL from environment
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url:
+    # Production: Use Supabase with SSL
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=database_url,
+            conn_max_age=600,
+            ssl_require=True,  # Supabase always requires SSL
+        )
+    }
+else:
+    # Local development: Use SQLite (no SSL needed)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
