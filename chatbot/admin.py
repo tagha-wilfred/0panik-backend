@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ScamCheck
+from .models import ScamCheck 
 
 @admin.register(ScamCheck)
 class ScamCheckAdmin(admin.ModelAdmin):
