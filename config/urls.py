@@ -1,23 +1,43 @@
-"""
-URL configuration for config project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
-
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenRefreshView
+from accounts.views import RegisterView, LoginView, LogoutView, UserProfileView
+from devices.views import ClaimDeviceView, DeviceListView, DeviceDetailView, ReleaseDeviceView, DeviceHistoryView, DeviceIngestView
+from chatbot.views import ChatbotCheckView, ChatbotHistoryView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path('admin/', admin.site.urls),
+
+    # API version prefix
+    path('api/v1/', include([
+        # Auth
+        path('auth/register/', RegisterView.as_view(), name='register'),
+        path('auth/login/', LoginView.as_view(), name='login'),
+        path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+        path('auth/logout/', LogoutView.as_view(), name='logout'),
+        path('auth/me/', UserProfileView.as_view(), name='user_profile'),
+
+        # Devices
+        path('devices/claim/', ClaimDeviceView.as_view(), name='claim_device'),
+        path('devices/', DeviceListView.as_view(), name='device_list'),
+        path('devices/<uuid:pk>/', DeviceDetailView.as_view(), name='device_detail'),
+        path('devices/<uuid:pk>/release/', ReleaseDeviceView.as_view(), name='device_release'),
+        path('devices/<uuid:pk>/history/', DeviceHistoryView.as_view(), name='device_history'),
+
+        # Location ingestion (device-facing)
+        path('devices/ingest/location/', DeviceIngestView.as_view(), name='device_ingest'),
+
+        # Chatbot
+        path('chatbot/check/', ChatbotCheckView.as_view(), name='chatbot_check'),
+        path('chatbot/history/', ChatbotHistoryView.as_view(), name='chatbot_history'),
+
+        # Health check
+        path('health/', lambda request: Response({'status': 'ok'}), name='health_check'),
+    ])),
+
+    # OpenAPI documentation (optional)
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
