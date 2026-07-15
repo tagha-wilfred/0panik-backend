@@ -155,6 +155,7 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     'http://localhost:3000',  # React dev
     'http://localhost:8000',  # Django dev
     'http://localhost:5173',  # Vite dev
+    'https://0panik-web.vercel.app',  # Production web
 ])
 # For production, set via env: CORS_ALLOWED_ORIGINS=https://web.0panik.com,https://app.0panik.com
 
