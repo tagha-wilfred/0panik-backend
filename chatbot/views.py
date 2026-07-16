@@ -1,6 +1,7 @@
 import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from django.conf import settings
 from django.utils import timezone
 from .models import ScamCheck
 from .serializers import ScamCheckSerializer, ChatbotCheckSerializer
@@ -17,11 +18,20 @@ logger = logging.getLogger(__name__)
 class ChatbotCheckView(generics.GenericAPIView):
     """
     Check a message or URL for scams/phishing/fake news.
+    Accepts either 'text' or 'submitted_text' as the input field.
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ChatbotCheckSerializer
     
     def post(self, request):
+        # Accept either 'text' or 'submitted_text' from frontend
+        if 'submitted_text' in request.data and 'text' not in request.data:
+            request.data['text'] = request.data['submitted_text']
+        
+        # Log incoming data for debugging (remove in production)
+        logger.debug(f"Received data: {request.data}")
+        
+        # Validate with serializer
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         text = serializer.validated_data['text']
@@ -41,15 +51,19 @@ class ChatbotCheckView(generics.GenericAPIView):
         
         if urls and safe_browsing_available:
             logger.info(f"Checking URL against Safe Browsing: {urls[0]}")
-            result = SafeBrowsingChecker.check_url(urls[0])
-            safe_browsing_data = result.get('response')
-            
-            if result['is_flagged']:
-                safe_browsing_flagged = True
-                reason = result['reason']
-                source = 'safe_browsing'
-                verdict = 'risky'
-                logger.info(f"Safe Browsing flagged URL: {urls[0]}")
+            try:
+                result = SafeBrowsingChecker.check_url(urls[0])
+                safe_browsing_data = result.get('response')
+                
+                if result['is_flagged']:
+                    safe_browsing_flagged = True
+                    reason = result['reason']
+                    source = 'safe_browsing'
+                    verdict = 'risky'
+                    logger.info(f"Safe Browsing flagged URL: {urls[0]}")
+            except Exception as e:
+                logger.error(f"Safe Browsing check failed: {str(e)}")
+                # Continue to heuristics
         
         # --- Stage 2: Heuristics (if not flagged by Safe Browsing) ---
         if not safe_browsing_flagged:
@@ -109,15 +123,23 @@ class ChatbotCheckView(generics.GenericAPIView):
                 reason = 'Could not determine safety (no URL found for external check)'
         
         # --- Log the check ---
-        scam_check = ScamCheck.objects.create(
-            user=request.user,
-            submitted_text=text,
-            verdict=verdict,
-            reason=reason,
-            source=source,
-            url_checked=url_checked,
-            safe_browsing_response=safe_browsing_data
-        )
+        try:
+            scam_check = ScamCheck.objects.create(
+                user=request.user,
+                submitted_text=text,
+                verdict=verdict,
+                reason=reason,
+                source=source,
+                url_checked=url_checked,
+                safe_browsing_response=safe_browsing_data
+            )
+        except Exception as e:
+            logger.error(f"Failed to save ScamCheck: {str(e)}")
+            # Still return the result even if logging fails
+            # Create a mock object for the response
+            class MockScamCheck:
+                created_at = timezone.now()
+            scam_check = MockScamCheck()
         
         # --- Return response ---
         return Response({
@@ -126,6 +148,7 @@ class ChatbotCheckView(generics.GenericAPIView):
             'source': source,
             'checked_at': scam_check.created_at.isoformat(),
             'url_checked': url_checked,
+            'submitted_text': text,  # Include original text for frontend display
             'message': 'Analysis complete'
         }, status=status.HTTP_200_OK)
 
