@@ -24,6 +24,12 @@ class SafeBrowsingChecker:
         """
         api_key = getattr(settings, 'GOOGLE_SAFE_BROWSING_API_KEY', '')
         
+        # 🔍 Debug logging
+        logger.info(f"=== Safe Browsing Check ===")
+        logger.info(f"URL: {url}")
+        logger.info(f"API Key present: {bool(api_key)}")
+        logger.info(f"API Key length: {len(api_key) if api_key else 0}")
+        
         if not api_key:
             logger.warning("Google Safe Browsing API key not configured")
             return {
@@ -51,6 +57,8 @@ class SafeBrowsingChecker:
             }
         }
         
+        logger.info(f"Payload: {payload}")
+        
         try:
             response = requests.post(
                 f'{cls.API_URL}?key={api_key}',
@@ -58,9 +66,15 @@ class SafeBrowsingChecker:
                 timeout=cls.TIMEOUT
             )
             
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text[:500]}")  # First 500 chars
+            
             if response.status_code == 200:
                 data = response.json()
                 is_flagged = bool(data.get('matches'))
+                logger.info(f"Is flagged: {is_flagged}")
+                logger.info(f"Matches: {data.get('matches')}")
+                
                 return {
                     'is_flagged': is_flagged,
                     'reason': 'Flagged by Google Safe Browsing' if is_flagged else 'Not flagged by Google Safe Browsing',
