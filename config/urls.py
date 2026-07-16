@@ -1,11 +1,15 @@
+
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenRefreshView
 from accounts.views import RegisterView, LoginView, LogoutView, UserProfileView
-from devices.views import ClaimDeviceView, DeviceListView, DeviceDetailView, ReleaseDeviceView, DeviceHistoryView, DeviceIngestView
+from devices.views import (
+    ClaimDeviceView, DeviceListView, DeviceDetailView, 
+    ReleaseDeviceView, DeviceHistoryView, DeviceIngestView
+)
 from chatbot.views import ChatbotCheckView, ChatbotHistoryView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.response import Response
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -37,7 +41,7 @@ urlpatterns = [
         path('health/', lambda request: Response({'status': 'ok'}), name='health_check'),
     ])),
 
-    # OpenAPI documentation (optional)
+    # OpenAPI documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]

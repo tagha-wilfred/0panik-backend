@@ -1,131 +1,141 @@
-import re
-import requests
-from django.conf import settings
+import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from django.utils import timezone
 from .models import ScamCheck
-from .serializers import ScamCheckSerializer
-from rest_framework import serializers
+from .serializers import ScamCheckSerializer, ChatbotCheckSerializer
+from .utils import (
+    extract_urls, 
+    check_phishing_keywords, 
+    check_suspicious_patterns,
+    check_short_urls
+)
+from .safe_browsing import SafeBrowsingChecker
+
+logger = logging.getLogger(__name__)
 
 class ChatbotCheckView(generics.GenericAPIView):
+    """
+    Check a message or URL for scams/phishing/fake news.
+    """
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = serializers.Serializer  # custom
-
+    serializer_class = ChatbotCheckSerializer
+    
     def post(self, request):
-        text = request.data.get('text', '').strip()
-        if not text:
-            return Response({'detail': 'text field is required'}, status=status.HTTP_400_BAD_REQUEST)
-        if len(text) > 5000:
-            return Response({'detail': 'text too long (max 5000)'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 1. Extract URLs
-        urls = re.findall(r'https?://[^\s]+', text)
-
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        text = serializer.validated_data['text']
+        
+        # Extract URLs
+        urls = extract_urls(text)
+        url_checked = urls[0] if urls else None
+        
         verdict = 'unknown'
         source = 'combined'
         reason = ''
-
-        # 2. Check Safe Browsing if API key present and URLs found
-        safe_browsing_available = bool(settings.GOOGLE_SAFE_BROWSING_API_KEY)
+        safe_browsing_data = None
+        
+        # --- Stage 1: Google Safe Browsing ---
+        safe_browsing_available = bool(getattr(settings, 'GOOGLE_SAFE_BROWSING_API_KEY', ''))
         safe_browsing_flagged = False
+        
         if urls and safe_browsing_available:
-            try:
-                # Google Safe Browsing API v4
-                api_key = settings.GOOGLE_SAFE_BROWSING_API_KEY
-                payload = {
-                    "client": {"clientId": "0panik", "clientVersion": "1.0.0"},
-                    "threatInfo": {
-                        "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
-                        "platformTypes": ["ANY_PLATFORM"],
-                        "threatEntryTypes": ["URL"],
-                        "threatEntries": [{"url": url} for url in urls]
-                    }
-                }
-                response = requests.post(
-                    f'https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}',
-                    json=payload,
-                    timeout=5
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('matches'):
-                        safe_browsing_flagged = True
-                        reason = "Flagged by Google Safe Browsing."
-                else:
-                    # Log error but continue
-                    pass
-            except Exception:
-                # Timeout or other error; fall back to heuristics
-                safe_browsing_available = False  # treat as unavailable
-
-        if safe_browsing_flagged:
-            verdict = 'risky'
-            source = 'safe_browsing'
-            if not reason:
-                reason = 'Malicious URL detected.'
-        else:
-            # 3. Heuristics
+            logger.info(f"Checking URL against Safe Browsing: {urls[0]}")
+            result = SafeBrowsingChecker.check_url(urls[0])
+            safe_browsing_data = result.get('response')
+            
+            if result['is_flagged']:
+                safe_browsing_flagged = True
+                reason = result['reason']
+                source = 'safe_browsing'
+                verdict = 'risky'
+                logger.info(f"Safe Browsing flagged URL: {urls[0]}")
+        
+        # --- Stage 2: Heuristics (if not flagged by Safe Browsing) ---
+        if not safe_browsing_flagged:
             heuristics_flagged = False
-            heuristic_reason = ''
-            # Suspicious TLDs / IP-based URLs
-            if re.search(r'https?://\d+\.\d+\.\d+\.\d+', text):
+            heuristic_reasons = []
+            
+            # Check text for phishing keywords
+            is_flagged, keyword_reason = check_phishing_keywords(text)
+            if is_flagged:
                 heuristics_flagged = True
-                heuristic_reason = 'IP-based URL detected.'
-            # Common phishing keywords
-            phishing_keywords = ['urgent', 'verify your account', 'you have won', 'send otp', 'password reset']
-            for kw in phishing_keywords:
-                if kw.lower() in text.lower():
+                heuristic_reasons.append(keyword_reason)
+            
+            # Check URL patterns
+            if urls:
+                url = urls[0]
+                is_flagged, url_reason = check_suspicious_patterns(url, text)
+                if is_flagged:
                     heuristics_flagged = True
-                    heuristic_reason = f'Contains suspicious phrase: "{kw}"'
-                    break
-            # Lookalike domains (simplified)
-            if re.search(r'https?://[a-z0-9-]+\.(com|org|net)\.[a-z]{2,}', text):
-                heuristics_flagged = True
-                heuristic_reason = 'Suspicious domain structure.'
-
+                    heuristic_reasons.append(url_reason)
+                
+                # Check short URLs
+                is_short, short_reason = check_short_urls(url)
+                if is_short:
+                    heuristics_flagged = True
+                    heuristic_reasons.append(short_reason)
+            
             if heuristics_flagged:
                 verdict = 'risky'
                 source = 'heuristic'
-                reason = heuristic_reason
+                reason = ' | '.join(heuristic_reasons)
+                logger.info(f"Heuristics flagged content: {reason}")
             else:
-                # If no URL and no heuristics -> safe
+                # No threats detected
                 if not urls:
-                    # No URL present, and heuristics didn't flag -> safe
+                    # No URL present and no heuristics -> safe
                     verdict = 'safe'
                     source = 'combined'
-                    reason = 'No suspicious content detected.'
+                    reason = 'No suspicious content detected'
                 else:
-                    # URLs present but Safe Browsing didn't flag and heuristics didn't flag -> safe
-                    verdict = 'safe'
-                    source = 'combined'
-                    reason = 'No threat detected.'
-
-        # If Safe Browsing unavailable and we couldn't decide, fallback unknown
-        if not safe_browsing_available and not heuristics_flagged and urls:
-            # We had URLs but could not check and heuristics didn't flag -> unknown
-            verdict = 'unknown'
-            source = 'heuristic'
-            reason = 'External check unavailable; heuristics found no clear threat.'
-
-        # Log the check
-        ScamCheck.objects.create(
+                    # URLs present but no flags
+                    if safe_browsing_available:
+                        verdict = 'safe'
+                        source = 'combined'
+                        reason = 'No threat detected by Safe Browsing or heuristics'
+                    else:
+                        # Safe Browsing unavailable, heuristics found nothing
+                        verdict = 'unknown'
+                        source = 'heuristic'
+                        reason = 'Safe Browsing unavailable; heuristics found no clear threat'
+        
+        # --- Stage 3: Fallback for unknown ---
+        if verdict == 'unknown' and not safe_browsing_available:
+            # If we couldn't check and heuristics didn't flag
+            if urls:
+                reason = 'Could not verify URL safety (external check unavailable)'
+            else:
+                reason = 'Could not determine safety (no URL found for external check)'
+        
+        # --- Log the check ---
+        scam_check = ScamCheck.objects.create(
             user=request.user,
             submitted_text=text,
             verdict=verdict,
             reason=reason,
-            source=source
+            source=source,
+            url_checked=url_checked,
+            safe_browsing_response=safe_browsing_data
         )
-
+        
+        # --- Return response ---
         return Response({
             'verdict': verdict,
             'reason': reason,
-            'checked_at': request.timestamp  # we'll set in middleware? not critical
+            'source': source,
+            'checked_at': scam_check.created_at.isoformat(),
+            'url_checked': url_checked,
+            'message': 'Analysis complete'
         }, status=status.HTTP_200_OK)
-    
+
 
 class ChatbotHistoryView(generics.ListAPIView):
+    """
+    Get the user's past scam check history.
+    """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ScamCheckSerializer
-
+    
     def get_queryset(self):
-        return ScamCheck.objects.filter(user=self.request.user).order_by('-created_at')
+        return ScamCheck.objects.filter(user=self.request.user)
