@@ -172,7 +172,7 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = {
     'user': '1000/day',
     'login': '5/minute',
     'register': '5/hour',
-    'device_ingest': '1/5sec',   # per-device throttling (will be applied per device key)
+    'device_ingest': '12/minute',   # per-device throttling (will be applied per device key)
 }
 
 # Spectacular (OpenAPI) settings
