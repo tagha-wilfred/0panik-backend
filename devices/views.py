@@ -149,6 +149,7 @@ from .models import Device, LocationPing
 from .serializers import DeviceSerializer, LocationPingSerializer
 from .permissions import IsDeviceOwner
 from .authentication import DeviceAPIKeyAuthentication
+from rest_framework.views import APIView
 from .throttles import DeviceIngestRateThrottle  # ← Import the custom throttle
 
 
