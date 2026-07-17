@@ -207,3 +207,6 @@ LOGGING = {
         },
     },
 }
+
+# URL Analysis Settings
+ENABLE_ADVANCED_URL_ANALYSIS = env.bool('ENABLE_ADVANCED_URL_ANALYSIS', default=True)
