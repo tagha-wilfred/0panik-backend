@@ -1,3 +1,4 @@
+
 import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -12,7 +13,7 @@ from .utils import (
     check_short_urls
 )
 from .safe_browsing import SafeBrowsingChecker
-from .url_analyzer import URLSecurityAnalyzer  # ← NEW: Import the analyzer
+from .url_analyzer import URLSecurityAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +47,17 @@ class ChatbotCheckView(generics.GenericAPIView):
         logger.info(f"=== DEBUG: URLs to analyze: {urls}")
         logger.info(f"=== DEBUG: Safe Browsing flagged: {safe_browsing_flagged}")
         
+        # --- Initialize all variables ---
         verdict = 'unknown'
         source = 'combined'
         reason = ''
         safe_browsing_data = None
-        advanced_findings = []  # ← NEW: Store advanced analysis findings
+        safe_browsing_available = False
+        safe_browsing_flagged = False
+        advanced_findings = []
         
         # --- Stage 1: Google Safe Browsing ---
         safe_browsing_available = bool(getattr(settings, 'GOOGLE_SAFE_BROWSING_API_KEY', ''))
-        safe_browsing_flagged = False
         
         logger.info(f"Safe Browsing available: {safe_browsing_available}")
         logger.info(f"URLs to check: {urls}")
@@ -84,8 +87,7 @@ class ChatbotCheckView(generics.GenericAPIView):
             if not urls:
                 logger.info("No URLs found to check")
         
-        # --- Stage 1.5: Advanced URL Analysis (NEW - Complements Safe Browsing) ---
-        # Only run if we have a URL and Safe Browsing didn't already flag it
+        # --- Stage 1.5: Advanced URL Analysis ---
         if urls and not safe_browsing_flagged and getattr(settings, 'ENABLE_ADVANCED_URL_ANALYSIS', True):
             logger.info(f"Running advanced URL analysis on: {urls[0]}")
             try:
@@ -201,7 +203,7 @@ class ChatbotCheckView(generics.GenericAPIView):
             'checked_at': scam_check.created_at.isoformat(),
             'url_checked': url_checked,
             'submitted_text': text,
-            'advanced_findings_count': len(advanced_findings),  # ← NEW: Include count
+            'advanced_findings_count': len(advanced_findings),
             'message': 'Analysis complete'
         }, status=status.HTTP_200_OK)
 
