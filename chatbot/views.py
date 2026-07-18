@@ -1,4 +1,3 @@
-
 import logging
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -31,7 +30,7 @@ class ChatbotCheckView(generics.GenericAPIView):
             request.data['text'] = request.data['submitted_text']
         
         # Log incoming data
-        logger.info(f"Chatbot request from user {request.user.email}: {request.data.get('text', '')[:100]}...")
+        logger.info(f"Chatbot request from user {request.user.email}")
         
         # Validate with serializer
         serializer = self.get_serializer(data=request.data)
@@ -43,9 +42,6 @@ class ChatbotCheckView(generics.GenericAPIView):
         url_checked = urls[0] if urls else None
         
         logger.info(f"Extracted URLs: {urls}")
-        logger.info(f"=== DEBUG: Advanced Analysis Enabled: {getattr(settings, 'ENABLE_ADVANCED_URL_ANALYSIS', True)}")
-        logger.info(f"=== DEBUG: URLs to analyze: {urls}")
-        logger.info(f"=== DEBUG: Safe Browsing flagged: {safe_browsing_flagged}")
         
         # --- Initialize all variables ---
         verdict = 'unknown'
@@ -59,14 +55,10 @@ class ChatbotCheckView(generics.GenericAPIView):
         # --- Stage 1: Google Safe Browsing ---
         safe_browsing_available = bool(getattr(settings, 'GOOGLE_SAFE_BROWSING_API_KEY', ''))
         
-        logger.info(f"Safe Browsing available: {safe_browsing_available}")
-        logger.info(f"URLs to check: {urls}")
-        
         if urls and safe_browsing_available:
             logger.info(f"Checking URL against Safe Browsing: {urls[0]}")
             try:
                 result = SafeBrowsingChecker.check_url(urls[0])
-                logger.info(f"Safe Browsing result: {result}")
                 safe_browsing_data = result.get('response')
                 
                 if result['is_flagged']:
@@ -74,18 +66,12 @@ class ChatbotCheckView(generics.GenericAPIView):
                     reason = result['reason']
                     source = 'safe_browsing'
                     verdict = 'risky'
-                    logger.info(f"✅ Safe Browsing flagged URL: {urls[0]}")
+                    logger.info(f"Safe Browsing flagged URL: {urls[0]}")
                 else:
-                    logger.info(f"❌ Safe Browsing did NOT flag URL: {urls[0]}")
                     if result.get('error'):
                         logger.warning(f"Safe Browsing error: {result.get('error')}")
             except Exception as e:
                 logger.error(f"Safe Browsing check failed: {str(e)}", exc_info=True)
-        else:
-            if not safe_browsing_available:
-                logger.warning("Safe Browsing API key not configured")
-            if not urls:
-                logger.info("No URLs found to check")
         
         # --- Stage 1.5: Advanced URL Analysis ---
         if urls and not safe_browsing_flagged and getattr(settings, 'ENABLE_ADVANCED_URL_ANALYSIS', True):
@@ -96,18 +82,15 @@ class ChatbotCheckView(generics.GenericAPIView):
                 
                 # If advanced analysis found something suspicious
                 if analysis.get('is_suspicious', False):
-                    # Don't override Safe Browsing verdict, but add to it
                     if verdict == 'safe' or verdict == 'unknown':
-                        verdict = 'unknown'  # At minimum, mark as unknown
+                        verdict = 'unknown'
                     
-                    # Add findings to reason
                     finding_messages = [f.get('message', '') for f in advanced_findings if f.get('severity') in ['critical', 'high']]
                     if finding_messages:
                         if reason:
                             reason += ' | Advanced analysis: ' + ' | '.join(finding_messages[:2])
                         else:
                             reason = 'Advanced analysis: ' + ' | '.join(finding_messages[:2])
-                        
                         source = 'combined'
                         logger.info(f"Advanced URL analysis found issues: {finding_messages}")
             except Exception as e:
@@ -134,7 +117,6 @@ class ChatbotCheckView(generics.GenericAPIView):
                     heuristic_reasons.append(url_reason)
                     logger.info(f"Suspicious URL pattern: {url_reason}")
                 
-                # Check short URLs
                 is_short, short_reason = check_short_urls(url)
                 if is_short:
                     heuristics_flagged = True
@@ -147,7 +129,6 @@ class ChatbotCheckView(generics.GenericAPIView):
                 reason = ' | '.join(heuristic_reasons)
                 logger.info(f"Heuristics flagged content: {reason}")
             else:
-                # No threats detected
                 if not urls:
                     verdict = 'safe'
                     source = 'combined'
@@ -171,7 +152,6 @@ class ChatbotCheckView(generics.GenericAPIView):
         
         # --- Log the check ---
         try:
-            # Combine safe_browsing_data with advanced findings for debugging
             combined_response = {
                 'safe_browsing': safe_browsing_data,
                 'advanced_findings': advanced_findings
