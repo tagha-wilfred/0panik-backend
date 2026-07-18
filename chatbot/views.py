@@ -42,6 +42,9 @@ class ChatbotCheckView(generics.GenericAPIView):
         url_checked = urls[0] if urls else None
         
         logger.info(f"Extracted URLs: {urls}")
+        logger.info(f"=== DEBUG: Advanced Analysis Enabled: {getattr(settings, 'ENABLE_ADVANCED_URL_ANALYSIS', True)}")
+        logger.info(f"=== DEBUG: URLs to analyze: {urls}")
+        logger.info(f"=== DEBUG: Safe Browsing flagged: {safe_browsing_flagged}")
         
         verdict = 'unknown'
         source = 'combined'
